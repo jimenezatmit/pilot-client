@@ -22,6 +22,9 @@ import AssessmentInterface from '../../components/AssessmentInterface/Assessment
 import BreakInterface from '../../components/BreakInterface/BreakInterface';
 import DeliverablePanel from './components/DeliverablePanel/DeliverablePanel';
 import TaskCompletionBar from '../../components/TaskCompletionBar/TaskCompletionBar';
+import ProcessingOverlay from '../../components/ProcessingOverlay/ProcessingOverlay';
+import MessageBubble from '../../components/MessageBubble/MessageBubble';
+import SummaryModal from '../../components/SummaryModal/SummaryModal';
 
 import './Learning.css';
 import '../../styles/smart-tasks.css';
@@ -213,6 +216,13 @@ function Learning() {
   
   // Input tray height for dynamic message container padding
   const [inputTrayHeight, setInputTrayHeight] = useState(180);
+  
+  // File upload state (matching GPT.jsx)
+  const [isProcessingUpload, setIsProcessingUpload] = useState(false);
+  const [processingFileName, setProcessingFileName] = useState('');
+  const [processingStep, setProcessingStep] = useState('');
+  const [modalSummaryData, setModalSummaryData] = useState(null);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
   
   // Callback for height changes from AutoExpandTextarea
   const handleInputTrayHeightChange = useCallback((height) => {
@@ -964,6 +974,109 @@ function Learning() {
     }
   };
 
+  const handleFileUpload = async (file) => {
+    if (!user?.active) {
+      setError('You have historical access only and cannot upload files.');
+      return;
+    }
+
+    const currentTask = tasks[currentTaskIndex];
+    if (!currentTask) {
+      setError('No active task to upload file to.');
+      return;
+    }
+
+    // Validate file size (50MB limit to match GPT)
+    const maxFileSize = 50 * 1024 * 1024;
+    if (file.size > maxFileSize) {
+      setError(`File size too large. Maximum size is 50MB. Your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB.`);
+      return;
+    }
+
+    setIsProcessingUpload(true);
+    setProcessingFileName(file.name);
+    setProcessingStep('Uploading file...');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('taskId', currentTask.id);
+      formData.append('dayNumber', currentDay?.day_number);
+      formData.append('cohort', currentDay?.cohort);
+
+      setProcessingStep('Processing content...');
+
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/learning/upload-file`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to upload file');
+      }
+
+      const summaryData = await response.json();
+      
+      setProcessingStep('Finalizing...');
+      
+      // Create content source message (matching GPT pattern)
+      const contentSourceMessage = {
+        message_id: Date.now(),
+        content: null,
+        message_role: 'content_source',
+        created_at: new Date().toISOString(),
+        contentSource: {
+          id: Date.now(),
+          type: 'file',
+          title: summaryData.file.name,
+          summary: summaryData.summary,
+          fileName: file.name,
+          contentType: summaryData.contentType || 'document',
+          processedAt: new Date().toISOString(),
+          imageData: summaryData.imageData || null
+        }
+      };
+
+      setMessages(prevMessages => [...prevMessages, contentSourceMessage]);
+      
+      toast.success(`File "${file.name}" uploaded successfully!`, {
+        duration: 3000
+      });
+
+    } catch (error) {
+      console.error('Error processing file:', error);
+      setError(`Failed to process file: ${error.message}`);
+      toast.error(`Failed to process file: ${error.message}`);
+    } finally {
+      setIsProcessingUpload(false);
+      setProcessingFileName('');
+      setProcessingStep('');
+    }
+  };
+
+  const showContentSummary = (source) => {
+    setModalSummaryData({
+      summary: source.summary,
+      title: source.fileName || source.title,
+      contentType: source.contentType,
+      sourceInfo: source,
+      imageData: source.imageData || null
+    });
+    setShowSummaryModal(true);
+  };
+
+  const closeSummaryModal = () => {
+    setShowSummaryModal(false);
+    setModalSummaryData(null);
+  };
+
   const handleDeliverableSubmit = async (deliverableData) => {
     const currentTask = tasks[currentTaskIndex];
     
@@ -1375,6 +1488,19 @@ function Learning() {
               {messages.map((message, index) => {
                 const isStreamingMessage = message.isStreaming === true;
                 
+                // Handle content source messages (file uploads)
+                if (message.message_role === 'content_source') {
+                  return (
+                    <MessageBubble
+                      key={message.message_id || index}
+                      message={message}
+                      onContentSummary={showContentSummary}
+                      getMessageRole={(msg) => msg.message_role}
+                      getMessageId={(msg) => msg.message_id}
+                    />
+                  );
+                }
+                
                 return (
                   <div key={message.id || index} className="mb-6">
                     {message.sender === 'user' ? (
@@ -1441,6 +1567,9 @@ function Learning() {
                 onPeerFeedbackClick={() => setIsPeerFeedbackSheetOpen(true)}
                 showLlmDropdown={tasks[currentTaskIndex]?.task_mode === 'conversation'}
                 onHeightChange={handleInputTrayHeightChange}
+                showFileUpload={tasks[currentTaskIndex]?.task_mode === 'conversation'}
+                onFileUpload={handleFileUpload}
+                isProcessingUpload={isProcessingUpload}
               />
               )}
             </div>
@@ -1504,6 +1633,27 @@ function Learning() {
       
       {/* Loading Curtain */}
       <LoadingCurtain isLoading={isPageLoading} />
+
+      {/* Processing Overlay */}
+      <ProcessingOverlay
+        isProcessing={isProcessingUpload}
+        processingStep={processingStep}
+        processingFileName={processingFileName}
+      />
+
+      {/* Summary Modal */}
+      {modalSummaryData && (
+        <SummaryModal
+          isOpen={showSummaryModal}
+          onClose={closeSummaryModal}
+          summary={modalSummaryData.summary}
+          title={modalSummaryData.title}
+          contentType={modalSummaryData.contentType}
+          sourceInfo={modalSummaryData.sourceInfo}
+          imageData={modalSummaryData.imageData}
+          hideDiscussButton={true}
+        />
+      )}
     </>
   );
 }

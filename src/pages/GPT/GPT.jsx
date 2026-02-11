@@ -10,8 +10,8 @@ import LoadingCurtain from '../../components/LoadingCurtain/LoadingCurtain';
 // New Components
 import GPTTopBar from './components/GPTTopBar';
 import ChatTray from './components/ChatTray';
-import MessageBubble from './components/MessageBubble';
-import ProcessingOverlay from './components/ProcessingOverlay';
+import MessageBubble from '../../components/MessageBubble/MessageBubble';
+import ProcessingOverlay from '../../components/ProcessingOverlay/ProcessingOverlay';
 import ArrowButton from '../../components/ArrowButton/ArrowButton';
 
 // Shadcn UI Components

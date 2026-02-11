@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
+import { Paperclip } from 'lucide-react';
 import ArrowButton from './ArrowButton/ArrowButton';
 
 // Available LLM models
@@ -34,10 +35,14 @@ const AutoExpandTextarea = forwardRef(({
   peerFeedbackButtonText = "Peer Feedback",
   showLlmDropdown = false,
   shouldFocus = false,
-  onHeightChange
+  onHeightChange,
+  showFileUpload = false,
+  onFileUpload,
+  isProcessingUpload = false
 }, ref) => {
   const textareaRef = useRef(null);
   const containerRef = useRef(null);
+  const fileInputRef = useRef(null);
   const [localModel, setLocalModel] = useState(LLM_MODELS[0].value);
   const [hasContent, setHasContent] = useState(false);
 
@@ -143,6 +148,15 @@ const AutoExpandTextarea = forwardRef(({
     }
   };
 
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file && onFileUpload) {
+      onFileUpload(file);
+      // Reset the input so the same file can be selected again
+      e.target.value = '';
+    }
+  };
+
   return (
     <div ref={containerRef} className="bg-stardust shadow-lg rounded-t-[20px] p-4">
       <div className="flex flex-col gap-2">
@@ -161,7 +175,7 @@ const AutoExpandTextarea = forwardRef(({
 
         {/* Bottom row with buttons */}
         <div className="flex justify-between items-center">
-          {/* Left side - Assignment, Instructions, and Peer Feedback buttons */}
+          {/* Left side - Assignment, Instructions, Peer Feedback, and File Upload buttons */}
           <div className="flex gap-2">
             {showInstructionsButton && (
               <Button
@@ -189,6 +203,27 @@ const AutoExpandTextarea = forwardRef(({
               >
                 {peerFeedbackButtonText}
               </Button>
+            )}
+            {showFileUpload && (
+              <>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg"
+                  style={{ display: 'none' }}
+                />
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={disabled || isProcessingUpload}
+                  size="sm"
+                  className="bg-gray-600 hover:bg-gray-700 text-white text-xs px-3 py-1 h-6 rounded-full flex items-center gap-1"
+                  title="Upload file (PDF, TXT, MD, DOCX, PNG, JPEG)"
+                >
+                  <Paperclip className="w-3 h-3" />
+                  {isProcessingUpload ? 'Uploading...' : 'Upload'}
+                </Button>
+              </>
             )}
           </div>
 

@@ -221,7 +221,7 @@ function normalizeChatHistory(chatHistory) {
     .map((m, idx) => ({
       id: `srv-${m.id ?? idx}`,
       role: m.role,
-      content: m.content,
+      content: stripForDisplay(m.content),
     }));
 }
 
@@ -1149,6 +1149,12 @@ function CompassChat({ status, cycleEnded, onEnrollmentComplete }) {
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = '';
     setIsStreaming(true);
+    // Sync the ref immediately so any concurrent sendMessage call (e.g. an
+    // auto-trigger effect that fires before the next render) sees isStreaming=true
+    // and bails out. Without this, the render-cycle delay between setIsStreaming
+    // and the ref update creates a window where a second sendMessage can slip
+    // through the guard at the top of this function.
+    isStreamingRef.current = true;
 
     updateMessages(prev => [
       ...prev,
@@ -1362,13 +1368,21 @@ function CompassChat({ status, cycleEnded, onEnrollmentComplete }) {
           }
           console.error('Compass chat error:', err);
           if (isMountedRef.current) {
-            updateMessages(prev =>
-              prev.map(m =>
-                m.id === streamMsgId
-                  ? { ...m, content: 'Something went wrong on my end. Give it a moment and try again.', streaming: false }
-                  : m
-              )
-            );
+            if (isInit) {
+              // Auto-triggered messages (cycle-end, job alert, etc.) silently
+              // remove the streaming bubble on failure — the user never sent
+              // these explicitly, so a scary error is misleading and the next
+              // auto-trigger or manual message will recover naturally.
+              updateMessages(prev => prev.filter(m => m.id !== streamMsgId));
+            } else {
+              updateMessages(prev =>
+                prev.map(m =>
+                  m.id === streamMsgId
+                    ? { ...m, content: 'Something went wrong on my end. Give it a moment and try again.', streaming: false }
+                    : m
+                )
+              );
+            }
           }
           break;
         }
@@ -1383,6 +1397,7 @@ function CompassChat({ status, cycleEnded, onEnrollmentComplete }) {
       }
       if (isMountedRef.current) {
         setIsStreaming(false);
+        isStreamingRef.current = false; // sync immediately so effects see it without waiting for next render
         setIsCompleting(null); // safety net — clears banner if no handler ran
         completingTypeRef.current = null;
         setTimeout(() => textareaRef.current?.focus(), 50);
